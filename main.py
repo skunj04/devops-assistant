@@ -11,9 +11,16 @@ from pydantic import BaseModel
 from google import genai
 import os
 from dotenv import load_dotenv
+import time
+import signal
+import logging
 
 # Load environment variables from .env file
 load_dotenv()
+
+# Create logger object
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 #Create FastAPI instance
 app = FastAPI()
@@ -27,6 +34,7 @@ class DevOpsProblem(BaseModel):
 
 # Define a dynamic prompt to elicit specific responses from the model based on user input
 def devops_assistant(user_input):
+    logger.info(f"Received input: {user_input}")
     prompt = f"""
     You are a senior DevOps engineer.
 
@@ -44,14 +52,32 @@ def devops_assistant(user_input):
     Fixes:
     - ...
     """
-    response = client.models.generate_content(
-        model="gemini-2.5-flash",
-        contents=prompt
-    )
-    return response.text
+    for i in range(3):
+        try:
+            response = client.models.generate_content(
+                model="gemini-2.5-flash",
+                contents=prompt
+            )
+            logger.info("Response generated successfully")
+            return response.text
+        except Exception as e:
+            print(f"Retry {i+1} failed: {e}")
+            time.sleep(5)
+    return "Service is temporarily unavailable. Please try again later."
 
 # Define an API endpoint to receive user input and return response from the model
 @app.post("/devops-assistant")
 def get_devops_solution(problem: DevOpsProblem):
     response = devops_assistant(problem.query)
-    return {"response": response}
+    return {
+        "status": "success",
+        "data": response
+    }
+
+# Health API endpoint to check the health status
+@app.get("/health")
+def health_check():
+    return {"status": "healthy"}
+
+def timeout_handler(signum, frame):
+    raise Exception("Request timed out")
